@@ -109,7 +109,7 @@ func resolver(ctx context.Context, r *net.Resolver, domains <-chan string, resul
 	}
 }
 
-func run(ctx context.Context, out io.Writer, args []string) error {
+func run(ctx context.Context, out, errOut io.Writer, args []string) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
@@ -133,6 +133,7 @@ func run(ctx context.Context, out io.Writer, args []string) error {
 
 	r := &net.Resolver{}
 	stats := Stats{}
+	var lastErr error
 
 	info(out, cfg)
 
@@ -153,6 +154,9 @@ func run(ctx context.Context, out io.Writer, args []string) error {
 				return
 			case <-ticker.C:
 				fmt.Fprintln(out, stats.String())
+				if lastErr != nil {
+					fmt.Fprintln(errOut, lastErr)
+				}
 			}
 		}
 	}()
@@ -175,15 +179,20 @@ func run(ctx context.Context, out io.Writer, args []string) error {
 		stats.count++
 
 		if result.err != nil {
+			lastErr = result.err
 			stats.errCount++
 		}
 
 		stats.avg = stats.total / time.Duration(stats.count)
-
 	}
+
 	ticker.Stop()
 	tickerDone <- true
 	fmt.Fprintln(out, stats.String())
+	if lastErr != nil {
+		fmt.Fprintln(errOut, lastErr)
+	}
+
 	fmt.Fprintln(out, "════╣ STOP ╠════")
 	return nil
 }
@@ -191,7 +200,7 @@ func run(ctx context.Context, out io.Writer, args []string) error {
 func main() {
 	ctx := context.Background()
 
-	if err := run(ctx, os.Stdout, os.Args); err != nil {
+	if err := run(ctx, os.Stdout, os.Stderr, os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
